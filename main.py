@@ -296,12 +296,9 @@ def track_application_status(user_id:str, grant:str):
             t += 604800
 
         return {'application_status': True, 'approved': gr['timestamp'],'next payment':fixtime(gr['machine_time']+t),'application id':ids}
-    print('abc')
 
-@app.post('/track_application')
-def track_application_status(user_id:str, grant:str):
-    print('hello ivocorm')
-    return -1
+
+
 
 
 
