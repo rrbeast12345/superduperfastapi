@@ -2,10 +2,16 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import shelve
 import pickle
+from datetime import datetime, timezone
+
 app = FastAPI()
 import time
 # users = {'231':["231", "Thandi Mkhize", "1976-01-01", True],'341':["341", "oliver gardi", "2008-05-23", False]}
 
+def timestamp():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+def fixtime(t):
+    return  datetime.fromtimestamp(t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 class Item(BaseModel):
     id_number: str
@@ -26,6 +32,11 @@ class Person:
         self.consent_forms = []
         self.payment = []
         self.payment_forms = []
+        self.current_grants = []
+        self.identifications = []
+        self.grant_ids = []
+
+
 
 
 
@@ -61,11 +72,14 @@ def register(item: Item):
     with shelve.open('people/people') as db:
         db[item.id_number] = Person(item.id_number, item.name, item.dob)
         return db[item.id_number]
-@app.post("/get user")
+@app.post("/get_user")
 def get(id: str):
 
     with shelve.open('people/people') as db:
-        return db[id]
+        try:
+            return db[id]
+        except KeyError:
+            return 'user does not exist'
 @app.post("/delete user")
 def delete(id: str):
 
@@ -130,7 +144,6 @@ class rec(BaseModel):
     id_number: str
     consent_given: bool
     scope: list
-    timestamp: str
 
 @app.post('/record_consent')
 def record(form:rec):
@@ -154,12 +167,15 @@ def record(form:rec):
             user.consent_forms.append(ids)
 
             with shelve.open('consents/consents') as cts:
+                form = form.__dict__
+
+                form['timestamp'] = timestamp()
                 cts[ids] = form
 
         db[user.id_number] = user
 
     return {"form": form, "id": ids}
-@app.post('/retrieve_form')
+@app.post('/retrieve_consent_form')
 def retrieve(id:str):
     with shelve.open('consents/consents') as cts:
         try:
@@ -190,7 +206,12 @@ def record_pay(form:payment):
         user.payment_forms.append(ids)
 
         with shelve.open('payments/payments') as cts:
+            form = form.__dict__
+
+
+            form['timestamp'] = timestamp()
             cts[ids] = form
+
 
         db[user.id_number] = user
 
@@ -202,4 +223,89 @@ def retrieve_pay(id:str):
             return cts[id]
         except:
             return 'does not exist'
+@app.post('/apply')
+def apply(user_id:str, grant:str):
+
+
+    with shelve.open('people/people') as db:
+        try:
+            user: Person = db[user_id]
+        except:
+            return 'user does not exist'
+        if grant in user.current_grants:
+            return 'grant already applied'
+
+        db[user.id_number] = user
+        approved_grants = {}
+        if user.income_bracket == -1 or user.age == -1:
+
+            return 'user has not entered proper information'
+        for item in grants.keys():
+            if user.income_bracket <= grants[item][0] and user.age >= grants[item][1] and (
+                    user.citizenship_status == grants[item][2] or grants[item][2] == -1):
+                        approved_grants[item] = grants[item][3]
+        try:
+            reqs = approved_grants[grant]
+
+            for item in reqs:
+                if not item in user.identifications:
+                    return 'user has not inputted the proper documents: required documents are ' + ', '.join(reqs)
+
+
+
+            with shelve.open('grants/grants') as gdb:
+                ids = pickle.load(open('grants/grant.pkl', 'rb')) + 1
+
+                pickle.dump(ids, open('grants/grant.pkl', 'wb'))
+
+                gdb[str(ids)] = {'grant':grant, "timestamp":timestamp(), 'machine_time': time.time()}
+            user.current_grants.append(grant)
+            user.grant_ids.append(str(ids))
+            db[user.id_number] = user
+        except:
+            return 'user is not approved for this grant'
+        return {"grant": grant, "user": user, 'id': ids}
+
+@app.post('/enter_identification')
+def enter_identification(user_id:str, identification):
+    with shelve.open('people/people') as db:
+        try:
+            user = db[user_id]
+        except:
+            return 'user doesn\'t exist'
+        user.identifications.append(identification)
+        db[user_id] = user
+        return 'success'
+@app.post('/track_application_status')
+def track_application_status(user_id:str, grant:str):
+
+    with shelve.open('people/people') as db:
+        user = db[user_id]
+        if not grant in user.current_grants:
+            return {'application_status': False}
+
+        ids = user.grant_ids[user.current_grants.index(grant)]
+
+
+        with shelve.open('grants/grants') as gdb:
+            gr = gdb[ids]
+
+        t = 0
+
+        while (t+gr['machine_time']) < time.time():
+            t += 604800
+
+        return {'application_status': True, 'approved': gr['timestamp'],'next payment':fixtime(gr['machine_time']+t),'application id':ids}
+    print('abc')
+
+@app.post('/track_application')
+def track_application_status(user_id:str, grant:str):
+    print('hello ivocorm')
+    return -1
+
+
+
+
+
+
 
